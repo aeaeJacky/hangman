@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hangman 猜字遊戲</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f4;
+      margin: 0;
+      padding: 5px;
+      overflow: hidden;
+    }
+    h1 {
+      color: #333;
+      font-size: 4vw;
+      margin-bottom: 10px;
+    }
+    .word-display {
+      font-size: 5vw;
+      letter-spacing: 3vw;
+      margin: 10px 0;
+    }
+    .message,
+    .timer,
+    .high-score {
+      font-size: 3vw;
+      color: #555;
+      margin: 5px 0;
+    }
+    .keyboard {
+      margin: 10px auto;
+      max-width: 90vw;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .keyboard button {
+      font-size: 2vw;
+      padding: 0.8vw;
+      margin: 0.3vw;
+      cursor: pointer;
+      background-color: #4CAF50;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      transition: background-color 0.3s;
+      flex: 1 1 10%;
+      max-width: 10%;
+    }
+    .keyboard button:disabled {
+      background-color: #666;
+      cursor: not-allowed;
+    }
+    /* Updated restart-button style with fixed positioning */
+    .restart-button {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 2vw 4vw;
+      font-size: 3vw;
+      cursor: pointer;
+      background-color: #008CBA;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      transition: background-color 0.3s;
+      z-index: 1000;
+    }
+    .restart-button:hover {
+      background-color: #007B9E;
+    }
+    @media (max-width: 600px) {
+      .word-display {
+        letter-spacing: 1vw;
+      }
+      .keyboard button {
+        flex-basis: 20%;
+      }
+    }
+    /* No changes to snake animation CSS, as it remains the same */
+  </style>
+</head>
+<body>
+  <h1>Hangman 猜字遊戲 🌟</h1>
+  <div class="word-display" id="word-display"></div>
+  <div class="message" id="message">準備好了嗎？開始猜字母吧！</div>
+  <div class="timer" id="timer">剩餘時間: 60 秒</div>
+  <div class="high-score" id="high-score">最佳紀錄: 無</div>
+  <div class="keyboard" id="keyboard"></div>
+  <button class="restart-button" id="restart-button" style="display: none;">重新開始</button>
+
+  <script>
+    // Track how many games have been played.
+    let gameCount = 0;
+    // An array of 100 commonly used vocabulary words (each with 6 or more letters)
+    // that secondary school students might find useful in composition writing.
+    const oxfordWords = [
+      "academic", "activity", "address", "advance", "analysis", "ancient", "another", "appearance", "approach", "argument",
+      "assembled", "balance", "behavior", "benefit", "capacity", "challenge", "chemical", "citizen", "collapse", "combination",
+      "community", "compare", "complete", "compound", "concern", "confident", "connect", "consider", "constant", "contain",
+      "contrast", "courage", "creative", "culture", "decision", "decline", "democracy", "describe", "develop", "effective",
+      "evident", "examine", "example", "executive", "experience", "explain", "feature", "finance", "function", "generation",
+      "government", "hospital", "however", "illustrate", "individual", "inform", "initial", "instead", "interest", "journal",
+      "language", "library", "literature", "machine", "material", "measure", "method", "minimum", "natural", "observe",
+      "opinion", "original", "overall", "particular", "performance", "perhaps", "physical", "position", "potential", "practice",
+      "presence", "process", "product", "project", "purpose", "quality", "reality", "receive", "recent", "record",
+      "reflect", "region", "relation", "remain", "report", "research", "responsible", "section", "society", "strategy"
+    ];
+
+    let selectedWord = "";
+    let guessedWord = [];
+    let remainingAttempts = 6;
+    let timerInterval = null;
+    let highScore = localStorage.getItem("highScore") || Infinity;
+    
+    const messageElement = document.getElementById("message");
+    const wordDisplayElement = document.getElementById("word-display");
+    const keyboardElement = document.getElementById("keyboard");
+    const restartButton = document.getElementById("restart-button");
+    const timerElement = document.getElementById("timer");
+    const highScoreElement = document.getElementById("high-score");
+
+    function initGame() {
+      // The very first game always uses "snake"; subsequent games use a random word.
+      if (gameCount === 0) {
+        selectedWord = "snake";
+      } else {
+        selectedWord = oxfordWords[Math.floor(Math.random() * oxfordWords.length)];
+      }
+      guessedWord = Array(selectedWord.length).fill("_");
+      remainingAttempts = 6;
+      wordDisplayElement.textContent = guessedWord.join(" ");
+      messageElement.textContent = `你有 ${remainingAttempts} 次機會，謹慎選擇！`;
+      createKeyboard();
+      restartButton.style.display = "none";
+      startTimer(60); // Countdown from 60 seconds
+      updateHighScoreDisplay();
+      document.addEventListener("keypress", handleKeyPress);
+      
+      gameCount++;
+    }
+
+    function createKeyboard() {
+      keyboardElement.innerHTML = "";
+      const letters = "abcdefghijklmnopqrstuvwxyz".split("");
+      letters.forEach(letter => {
+        const button = document.createElement("button");
+        button.textContent = letter;
+        // Add a custom data attribute for easy identification
+        button.setAttribute("data-letter", letter);
+        button.addEventListener("click", () => handleGuess(letter));
+        keyboardElement.appendChild(button);
+      });
+    }
+
+    function handleGuess(letter) {
+      // Select the on-screen button using the custom data attribute.
+      const button = document.querySelector(`button[data-letter="${letter}"]`);
+      if (button && !button.disabled) {
+        button.disabled = true;
+        if (selectedWord.includes(letter)) {
+          selectedWord.split("").forEach((char, index) => {
+            if (char === letter) {
+              guessedWord[index] = letter;
+            }
+          });
+          wordDisplayElement.textContent = guessedWord.join(" ");
+          if (!guessedWord.includes("_")) {
+            // Winning condition: update message and show snake animation.
+            messageElement.textContent = "恭喜你答對了，蛇年大吉!";
+            showSnakeAnimation();
+            endGame();
+          } else {
+            messageElement.textContent = `Good guess!`;
+          }
+        } else {
+          remainingAttempts--;
+          messageElement.textContent = `No ${letter.toUpperCase()}, ${remainingAttempts} guesses left.`;
+          if (remainingAttempts <= 0) {
+            messageElement.textContent = `Game over! The word was ${selectedWord}.`;
+            endGame();
+          }
+        }
+      }
+    }
+
+    function handleKeyPress(event) {
+      const letter = event.key.toLowerCase();
+      if (letter.length === 1 && letter >= "a" && letter <= "z") {
+        handleGuess(letter);
+      }
+    }
+
+    function endGame() {
+      clearInterval(timerInterval);
+      document.querySelectorAll(".keyboard button").forEach(button => button.disabled = true);
+      document.removeEventListener("keypress", handleKeyPress);
+      restartButton.style.display = "block";
+      updateHighScore();
+    }
+
+    function startTimer(duration) {
+      let remainingTime = duration;
+      timerElement.textContent = `剩餘時間: ${remainingTime} 秒`;
+      timerInterval = setInterval(() => {
+        remainingTime--;
+        timerElement.textContent = `剩餘時間: ${remainingTime} 秒`;
+        if (remainingTime <= 0) {
+          clearInterval(timerInterval);
+          messageElement.textContent = "Time is up! Game over!";
+          document.querySelectorAll(".keyboard button").forEach(button => button.disabled = true);
+          document.removeEventListener("keypress", handleKeyPress);
+        }
+      }, 1000);
+    }
+
+    function updateHighScore() {
+      const elapsedTime = 60 - parseInt(timerElement.textContent.split(" ")[1]);
+      if (elapsedTime < highScore) {
+        highScore = elapsedTime;
+        localStorage.setItem("highScore", highScore);
+        updateHighScoreDisplay();
+      }
+    }
+
+    function updateHighScoreDisplay() {
+      highScoreElement.textContent = `Best Time: ${highScore} seconds`;
+    }
+
+    // Show a snake emoji moving from the rightmost side to the leftmost,
+    // while oscillating up and down along a sine wave path with a random baseline.
+    function showSnakeAnimation() {
+      const snake = document.createElement("div");
+      snake.style.position = "fixed";
+      snake.style.fontSize = "10vw";
+      snake.textContent = "🐍";
+      snake.style.pointerEvents = "none";
+      snake.style.zIndex = "1000";
+      // Initialize with temporary position settings.
+      snake.style.left = "0px";
+      snake.style.top = "0px";
+      document.body.appendChild(snake);
+      
+      // Force layout so we can measure the snake element.
+      const snakeRect = snake.getBoundingClientRect();
+      
+      let startTime = null;
+      const duration = 3000; // Animation duration in milliseconds.
+      const startX = window.innerWidth; 
+      const endX = -snakeRect.width; 
+      const distance = startX - endX;
+      
+      // Random baseline so the snake appears at a random vertical position.
+      const baseline = Math.random() * (window.innerHeight - snakeRect.height);
+      const amplitude = 50; // Vertical oscillation amplitude (in pixels)
+      const cycles = 2; // Number of sine wave cycles during the animation
+      
+      function animate(timestamp) {
+        if (!startTime) startTime = timestamp;
+        const elapsed = timestamp - startTime;
+        const progress = Math.min(elapsed / duration, 1);
+        // Calculate current horizontal position.
+        const currentX = startX - progress * distance;
+        // Calculate sine wave vertical offset.
+        const currentY = baseline + amplitude * Math.sin(2 * Math.PI * cycles * progress);
+        snake.style.left = currentX + "px";
+        snake.style.top = currentY + "px";
+        if (progress < 1) {
+          requestAnimationFrame(animate);
+        } else {
+          snake.remove();
+        }
+      }
+      
+      requestAnimationFrame(animate);
+    }
+
+    restartButton.addEventListener("click", initGame);
+
+    initGame();
+  </script>
+</body>
+</html>
